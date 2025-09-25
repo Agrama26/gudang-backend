@@ -13,14 +13,17 @@ const JWT_SECRET = process.env.JWT_SECRET || "your-secret-key-change-this";
 
 // ---------- Middlewares ----------
 app.use(express.json());
+const ALLOWED = [
+  "http://localhost:5173",
+  "http://localhost:3000",
+  "https://<frontend-prod-domainmu>", // contoh vercel/netlify
+];
 app.use(
   cors({
-    origin: [
-      "http://localhost:5173",
-      "http://localhost:3000",
-      "http://192.168.1.22:3000",
-    ],
-    credentials: false,
+    origin: (origin, cb) =>
+      !origin || ALLOWED.includes(origin)
+        ? cb(null, true)
+        : cb(new Error("CORS blocked")),
   })
 );
 // log request biar gampang debug
@@ -343,6 +346,35 @@ app.put("/api/barang/:id/status", authenticateToken, async (req, res) => {
 
   res.json({ message: "Status dan lokasi berhasil diupdate" });
 });
+
+// DISTINCT daftar kota untuk filter dropdown
+app.get("/api/kota", authenticateToken, async (_req, res) => {
+  const [rows] = await pool.query(
+    "SELECT DISTINCT kota FROM barang WHERE kota IS NOT NULL AND kota <> '' ORDER BY kota ASC"
+  );
+  res.json(rows.map(r => r.kota));
+});
+
+// Daftar kondisi & status yang berlaku
+app.get("/api/kondisi", authenticateToken, async (_req, res) => {
+  // kalau mau ambil unik dari data:
+  const [rows] = await pool.query(
+    "SELECT DISTINCT kondisi FROM barang WHERE kondisi IS NOT NULL AND kondisi <> '' ORDER BY kondisi ASC"
+  );
+  const kondisi = rows.map(r => r.kondisi);
+  // status berasal dari ENUM tabel
+  const status = ["READY","TERPAKAI","RUSAK"];
+  res.json({ kondisi, status });
+});
+
+// Ringkasan statistik dashboard
+app.get("/api/stats", authenticateToken, async (_req, res) => {
+  const [[{ total }]] = await pool.query("SELECT COUNT(*) AS total FROM barang");
+  const [byStatus] = await pool.query("SELECT status, COUNT(*) AS count FROM barang GROUP BY status");
+  const [byKota]   = await pool.query("SELECT kota, COUNT(*) AS count FROM barang WHERE kota IS NOT NULL AND kota<>'' GROUP BY kota ORDER BY count DESC");
+  res.json({ total, byStatus, byKota, at: new Date().toISOString() });
+});
+
 
 // Delete barang
 app.delete("/api/barang/:id", authenticateToken, async (req, res) => {
