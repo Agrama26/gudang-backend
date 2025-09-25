@@ -19,7 +19,6 @@ app.use(
       "http://localhost:5173",
       "http://localhost:3000",
       "http://192.168.1.22:3000",
-      " https://f42f2f509b50.ngrok-free.app",
     ],
     credentials: false,
   })
@@ -121,6 +120,7 @@ async function initSchema() {
         status ENUM('READY','TERPAKAI','RUSAK') NOT NULL,
         lokasi VARCHAR(255) NOT NULL,
         keterangan TEXT,
+        kondisi VARCHAR(50) NOT NULL,  -- <== TAMBAHKAN INI
         tanggal TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         CONSTRAINT fk_rb_barang FOREIGN KEY (barang_id) REFERENCES barang(id) ON DELETE CASCADE
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
