@@ -9,22 +9,19 @@ require("dotenv").config();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
-const JWT_SECRET = process.env.JWT_SECRET || "your-secret-key-change-this";
+const JWT_SECRET = process.env.JWT_SECRET || "isiRahasiaPanjangBanget";
 
 // ---------- Middlewares ----------
 app.use(express.json());
 const ALLOWED = [
-  "https://gudang-frontend-seven.vercel.app",
-  "https://gudang-permana-seven.vercel.app/" // contoh vercel/netlify
+  "http://localhost:5173",
+  "http://localhost:3000",
+  "https://gudang-permana-seven.vercel.app/"  // Vercel/Netlify/Railway Static
 ];
-app.use(
-  cors({
-    origin: (origin, cb) =>
-      !origin || ALLOWED.includes(origin)
-        ? cb(null, true)
-        : cb(new Error("CORS blocked")),
-  })
-);
+app.use(cors({
+  origin: (origin, cb) => (!origin || ALLOWED.includes(origin)) ? cb(null, true) : cb(new Error("CORS blocked")),
+  credentials: false
+}));
 // log request biar gampang debug
 app.use((req, _res, next) => {
   console.log(`[REQ] ${req.method} ${req.originalUrl}`);
