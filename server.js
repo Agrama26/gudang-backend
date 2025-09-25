@@ -32,12 +32,18 @@ app.use((req, _res, next) => {
 // ---------- MySQL Pool ----------
 let pool;
 (async () => {
+  const HOST = process.env.MYSQL_HOST || process.env.MYSQLHOST || "localhost";
+  const PORT = Number(process.env.MYSQL_PORT || process.env.MYSQLPORT || 3306);
+  const USER = process.env.MYSQL_USER || process.env.MYSQLUSER || "root";
+  const PASS = process.env.MYSQL_PASSWORD || process.env.MYSQLPASSWORD || "";
+  const DB = process.env.MYSQL_DB || process.env.MYSQLDATABASE || "warehouse";
+
   pool = mysql.createPool({
-    host: process.env.MYSQL_HOST || "localhost",
-    port: process.env.MYSQL_PORT ? Number(process.env.MYSQL_PORT) : 3306,
-    user: process.env.MYSQL_USER || "root",
-    password: process.env.MYSQL_PASSWORD || "",
-    database: process.env.MYSQL_DB || "warehouse",
+    host: HOST,
+    port: PORT,
+    user: USER,
+    password: PASS,
+    database: DB,
     waitForConnections: true,
     connectionLimit: 10,
     queueLimit: 0,
