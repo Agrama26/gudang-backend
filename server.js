@@ -14,9 +14,8 @@ const JWT_SECRET = process.env.JWT_SECRET || "your-secret-key-change-this";
 // ---------- Middlewares ----------
 app.use(express.json());
 const ALLOWED = [
-  "http://localhost:5173",
-  "http://localhost:3000",
-  "https://gudang-frontend-seven.vercel.app", // contoh vercel/netlify
+  "https://gudang-frontend-seven.vercel.app",
+  "https://gudang-permana-seven.vercel.app/" // contoh vercel/netlify
 ];
 app.use(
   cors({
