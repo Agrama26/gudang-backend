@@ -291,7 +291,7 @@ app.post("/api/barang", authenticateToken, async (req, res) => {
     const barangId = result.insertId;
     await pool.query(
       "INSERT INTO riwayat_barang (barang_id, status, lokasi, keterangan, kondisi) VALUES (?,?,?, ?, ?)",
-      [barangId, status, lokasi, "Barang baru ditambahkan", kondisi, keterangan] // Pastikan kondisi juga disertakan di riwayat
+      [barangId, status, lokasi, "Barang baru ditambahkan", kondisi] // Pastikan kondisi juga disertakan di riwayat
     );
 
     res
