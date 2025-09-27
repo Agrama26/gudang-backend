@@ -21,7 +21,7 @@ const ALLOWED_ORIGINS = [
   "http://localhost:3000",
   "http://localhost:4173",
   "https://gudang-permana-seven.vercel.app",
-  // "https://warehouse-frontend.vercel.app", // jika URL Vercel berbeda
+  "https://gudang-frontend-git-main-agrama26s-projects.vercel.app/", // jika URL Vercel berbeda
   /\.vercel\.app$/,  // Regex untuk semua subdomain vercel
   /localhost:\d+$/   // Regex untuk localhost dengan port apapun
 ];
