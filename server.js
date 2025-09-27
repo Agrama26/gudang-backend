@@ -1,9 +1,3 @@
-app.use(cors({
-  origin: ["http://localhost:5173", "https://gudang-permana-seven.vercel.app"],
-  credentials: true
-}));
-
-
 // server.js
 const express = require("express");
 const bcrypt = require("bcryptjs");
