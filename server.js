@@ -1,3 +1,11 @@
+import cors from "cors";
+
+app.use(cors({
+  origin: ["http://localhost:5173", "https://your-frontend.vercel.app"],
+  credentials: true
+}));
+
+
 // server.js
 const express = require("express");
 const bcrypt = require("bcryptjs");
