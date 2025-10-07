@@ -1202,6 +1202,39 @@ app.use((err, req, res, next) => {
   });
 });
 
+async function runMigrations() {
+  if (process.env.NODE_ENV === "production") {
+    console.log("🔄 Running production migrations...");
+    try {
+      // Import migrate script
+      require("./migrate");
+      console.log("✅ Migrations completed");
+    } catch (error) {
+      console.error("❌ Migration failed:", error);
+      // Don't exit, continue with existing schema
+    }
+  }
+}
+
+// Update startServer function
+async function startServer() {
+  try {
+    await initDatabase();
+
+    // Run migrations in production
+    if (process.env.NODE_ENV === "production") {
+      await runMigrations();
+    }
+
+    app.listen(PORT, "0.0.0.0", () => {
+      console.log(`🚀 Warehouse API running on http://0.0.0.0:${PORT}`);
+    });
+  } catch (error) {
+    console.error("❌ Failed to start server:", error);
+    process.exit(1);
+  }
+}
+
 // ---------- Start Server ----------
 async function startServer() {
   try {
