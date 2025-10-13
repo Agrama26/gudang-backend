@@ -5,12 +5,35 @@ const jwt = require("jsonwebtoken");
 const cors = require("cors");
 const qrcode = require("qrcode");
 const mysql = require("mysql2/promise");
+const XLSX = require("xlsx"); // NEW: Excel processing
+const multer = require("multer"); // NEW: File upload
 require("dotenv").config();
 const emailService = require("./services/emailService");
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 const JWT_SECRET = process.env.JWT_SECRET || "isiRahasiaPanjangBanget";
+
+// ---------- Configure Multer for File Upload ----------
+const storage = multer.memoryStorage();
+const upload = multer({
+  storage: storage,
+  limits: {
+    fileSize: 10 * 1024 * 1024, // 10MB limit
+  },
+  fileFilter: (req, file, cb) => {
+    // Accept only Excel files
+    const allowedMimes = [
+      "application/vnd.ms-excel",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ];
+    if (allowedMimes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error("Only Excel files (.xls, .xlsx) are allowed"));
+    }
+  },
+});
 
 // ---------- Middlewares ----------
 app.use(express.json({ limit: "10mb" }));
@@ -315,6 +338,150 @@ async function logActivity(
   }
 }
 
+// ---------- Excel Helper Functions ----------
+
+// Generate Excel template
+function generateExcelTemplate() {
+  const templateData = [
+    {
+      nama: "Router Mikrotik RB750",
+      type: "Network Equipment",
+      mac_address: "00:1B:44:11:3A:B7",
+      serial_number: "MK001234",
+      kondisi: "Baik",
+      status: "READY",
+      keterangan: "Router untuk kantor cabang",
+      lokasi: "Server Room A-1",
+      kota: "Medan",
+    },
+    {
+      nama: "TP-Link Switch 24 Port",
+      type: "Switch",
+      mac_address: "A4:2B:B0:C1:D2:E3",
+      serial_number: "TP567890",
+      kondisi: "Baru",
+      status: "READY",
+      keterangan: "Switch baru dari vendor",
+      lokasi: "Warehouse B-2",
+      kota: "Batam",
+    },
+  ];
+
+  const worksheet = XLSX.utils.json_to_sheet(templateData);
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, "Template Barang");
+
+  // Add instructions sheet
+  const instructions = [
+    {
+      Field: "nama",
+      Required: "YES",
+      Description: "Nama barang (contoh: Router Mikrotik RB750)",
+    },
+    { Field: "type", Required: "YES", Description: "Tipe/Model barang" },
+    {
+      Field: "mac_address",
+      Required: "NO",
+      Description: "MAC Address (format: XX:XX:XX:XX:XX:XX)",
+    },
+    {
+      Field: "serial_number",
+      Required: "YES",
+      Description: "Serial Number (harus unik)",
+    },
+    {
+      Field: "kondisi",
+      Required: "YES",
+      Description: "Kondisi: Baru, Baik, Rusak Ringan, Rusak Berat",
+    },
+    {
+      Field: "status",
+      Required: "YES",
+      Description: "Status: READY, TERPAKAI, RUSAK",
+    },
+    { Field: "keterangan", Required: "NO", Description: "Keterangan tambahan" },
+    {
+      Field: "lokasi",
+      Required: "YES",
+      Description: "Lokasi penempatan barang",
+    },
+    {
+      Field: "kota",
+      Required: "YES",
+      Description: "Kota: Medan, Batam, Pekan Baru, Jakarta, Tarutung",
+    },
+  ];
+
+  const instructionsSheet = XLSX.utils.json_to_sheet(instructions);
+  XLSX.utils.book_append_sheet(workbook, instructionsSheet, "Instructions");
+
+  return XLSX.write(workbook, { type: "buffer", bookType: "xlsx" });
+}
+
+// Validate import data
+function validateBarangData(data) {
+  const errors = [];
+  const validKondisi = ["Baru", "Baik", "Rusak Ringan", "Rusak Berat"];
+  const validStatus = ["READY", "TERPAKAI", "RUSAK"];
+  const validKota = ["Medan", "Batam", "Pekan Baru", "Jakarta", "Tarutung"];
+
+  data.forEach((item, index) => {
+    const row = index + 2; // Excel row (accounting for header)
+
+    // Required fields
+    if (!item.nama || item.nama.trim() === "") {
+      errors.push(`Row ${row}: Nama barang wajib diisi`);
+    }
+    if (!item.type || item.type.trim() === "") {
+      errors.push(`Row ${row}: Type barang wajib diisi`);
+    }
+    if (!item.serial_number || item.serial_number.trim() === "") {
+      errors.push(`Row ${row}: Serial number wajib diisi`);
+    }
+    if (!item.kondisi || item.kondisi.trim() === "") {
+      errors.push(`Row ${row}: Kondisi wajib diisi`);
+    }
+    if (!item.status || item.status.trim() === "") {
+      errors.push(`Row ${row}: Status wajib diisi`);
+    }
+    if (!item.lokasi || item.lokasi.trim() === "") {
+      errors.push(`Row ${row}: Lokasi wajib diisi`);
+    }
+    if (!item.kota || item.kota.trim() === "") {
+      errors.push(`Row ${row}: Kota wajib diisi`);
+    }
+
+    // Validate values
+    if (item.kondisi && !validKondisi.includes(item.kondisi)) {
+      errors.push(
+        `Row ${row}: Kondisi harus salah satu dari: ${validKondisi.join(", ")}`
+      );
+    }
+    if (item.status && !validStatus.includes(item.status)) {
+      errors.push(
+        `Row ${row}: Status harus salah satu dari: ${validStatus.join(", ")}`
+      );
+    }
+    if (item.kota && !validKota.includes(item.kota)) {
+      errors.push(
+        `Row ${row}: Kota harus salah satu dari: ${validKota.join(", ")}`
+      );
+    }
+
+    // Validate MAC address format if provided
+    if (item.mac_address && item.mac_address.trim() !== "") {
+      const macRegex = /^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$/;
+      if (!macRegex.test(item.mac_address)) {
+        errors.push(
+          `Row ${row}: Format MAC address tidak valid (gunakan format XX:XX:XX:XX:XX:XX)`
+        );
+      }
+    }
+  });
+
+  return errors;
+}
+
 // ---------- Routes ----------
 
 // Health check
@@ -428,6 +595,242 @@ app.post("/api/auth/login", async (req, res) => {
   } catch (error) {
     console.error("❌ Login error:", error);
     res.status(500).json({ message: "Internal server error" });
+  }
+});
+
+// ---------- NEW: Import/Export Routes ----------
+
+// Download Excel Template
+app.get("/api/barang/template", authenticateToken, async (req, res) => {
+  try {
+    console.log(`📥 Template download requested by user: ${req.user.username}`);
+
+    const buffer = generateExcelTemplate();
+
+    await logActivity(
+      req.user.id,
+      "TEMPLATE_DOWNLOADED",
+      "barang",
+      null,
+      "Downloaded import template",
+      req.ip
+    );
+
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    );
+    res.setHeader(
+      "Content-Disposition",
+      "attachment; filename=Template_Import_Barang.xlsx"
+    );
+    res.send(buffer);
+  } catch (error) {
+    console.error("❌ Template generation error:", error);
+    res.status(500).json({ message: "Failed to generate template" });
+  }
+});
+
+// Import Excel
+app.post(
+  "/api/barang/import",
+  authenticateToken,
+  upload.single("file"),
+  async (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ message: "No file uploaded" });
+      }
+
+      console.log(`📤 Import initiated by user: ${req.user.username}`);
+
+      // Parse Excel file
+      const workbook = XLSX.read(req.file.buffer, { type: "buffer" });
+      const sheetName = workbook.SheetNames[0];
+      const worksheet = workbook.Sheets[sheetName];
+      const jsonData = XLSX.utils.sheet_to_json(worksheet);
+
+      if (jsonData.length === 0) {
+        return res.status(400).json({ message: "Excel file is empty" });
+      }
+
+      // Validate data
+      const validationErrors = validateBarangData(jsonData);
+      if (validationErrors.length > 0) {
+        return res.status(400).json({
+          message: "Validation failed",
+          errors: validationErrors,
+        });
+      }
+
+      // Check for duplicate serial numbers in the file
+      const serialNumbers = jsonData.map((item) => item.serial_number);
+      const duplicates = serialNumbers.filter(
+        (item, index) => serialNumbers.indexOf(item) !== index
+      );
+      if (duplicates.length > 0) {
+        return res.status(400).json({
+          message: "Duplicate serial numbers found in file",
+          duplicates: [...new Set(duplicates)],
+        });
+      }
+
+      // Check for existing serial numbers in database
+      const [existingItems] = await pool.query(
+        "SELECT serial_number FROM barang WHERE serial_number IN (?)",
+        [serialNumbers]
+      );
+
+      if (existingItems.length > 0) {
+        return res.status(400).json({
+          message: "Some serial numbers already exist in database",
+          existing: existingItems.map((item) => item.serial_number),
+        });
+      }
+
+      // Import data
+      const conn = await pool.getConnection();
+      let successCount = 0;
+      let failedItems = [];
+
+      try {
+        await conn.beginTransaction();
+
+        for (const item of jsonData) {
+          try {
+            const [result] = await conn.query(
+              `INSERT INTO barang 
+            (nama, type, mac_address, serial_number, kondisi, status, keterangan, lokasi, kota, created_by)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              [
+                item.nama,
+                item.type,
+                item.mac_address || null,
+                item.serial_number,
+                item.kondisi,
+                item.status,
+                item.keterangan || "",
+                item.lokasi,
+                item.kota,
+                req.user.id,
+              ]
+            );
+
+            // Create initial history entry
+            await conn.query(
+              "INSERT INTO riwayat_barang (barang_id, status, lokasi, keterangan, kondisi, changed_by) VALUES (?, ?, ?, ?, ?, ?)",
+              [
+                result.insertId,
+                item.status,
+                item.lokasi,
+                "Imported from Excel",
+                item.kondisi,
+                req.user.id,
+              ]
+            );
+
+            successCount++;
+          } catch (itemError) {
+            failedItems.push({
+              serial_number: item.serial_number,
+              error: itemError.message,
+            });
+          }
+        }
+
+        await conn.commit();
+
+        await logActivity(
+          req.user.id,
+          "IMPORT_SUCCESS",
+          "barang",
+          null,
+          `Imported ${successCount} items from Excel`,
+          req.ip
+        );
+
+        res.json({
+          message: "Import completed",
+          success: successCount,
+          failed: failedItems.length,
+          failedItems: failedItems,
+        });
+      } catch (error) {
+        await conn.rollback();
+        throw error;
+      } finally {
+        conn.release();
+      }
+    } catch (error) {
+      console.error("❌ Import error:", error);
+      res.status(500).json({ message: "Import failed", error: error.message });
+    }
+  }
+);
+
+// Export to Excel
+app.get("/api/barang/export", authenticateToken, async (req, res) => {
+  try {
+    console.log(`📥 Export requested by user: ${req.user.username}`);
+
+    const [items] = await pool.query(`
+      SELECT 
+        nama,
+        type,
+        mac_address,
+        serial_number,
+        kondisi,
+        status,
+        keterangan,
+        lokasi,
+        kota,
+        created_at,
+        updated_at
+      FROM barang
+      ORDER BY created_at DESC
+    `);
+
+    if (items.length === 0) {
+      return res.status(404).json({ message: "No data to export" });
+    }
+
+    // Format dates for Excel
+    const formattedItems = items.map((item) => ({
+      ...item,
+      created_at: item.created_at
+        ? new Date(item.created_at).toLocaleString("id-ID")
+        : "",
+      updated_at: item.updated_at
+        ? new Date(item.updated_at).toLocaleString("id-ID")
+        : "",
+    }));
+
+    const worksheet = XLSX.utils.json_to_sheet(formattedItems);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Data Barang");
+
+    const buffer = XLSX.write(workbook, { type: "buffer", bookType: "xlsx" });
+
+    await logActivity(
+      req.user.id,
+      "EXPORT_SUCCESS",
+      "barang",
+      null,
+      `Exported ${items.length} items to Excel`,
+      req.ip
+    );
+
+    const filename = `Data_Barang_${new Date().toISOString().split("T")[0]}.xlsx`;
+
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    );
+    res.setHeader("Content-Disposition", `attachment; filename=${filename}`);
+    res.send(buffer);
+  } catch (error) {
+    console.error("❌ Export error:", error);
+    res.status(500).json({ message: "Export failed", error: error.message });
   }
 });
 
