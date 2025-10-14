@@ -1636,22 +1636,22 @@ async function startServer() {
 }
 
 // ---------- Start Server ----------
-// async function startServer() {
-//   try {
-//     await initDatabase();
+async function startServer() {
+  try {
+    await initDatabase();
 
-//     app.listen(PORT, "0.0.0.0", () => {
-//       console.log(`🚀 Warehouse API running on http://0.0.0.0:${PORT}`);
-//       console.log(
-//         `🗄️ Database: MySQL (${process.env.MYSQL_DB || "warehouse"})`
-//       );
-//       console.log(`🌍 Environment: ${process.env.NODE_ENV || "development"}`);
-//       console.log(`🔗 CORS origins configured for Vercel deployment`);
-//     });
-//   } catch (error) {
-//     console.error("❌ Failed to start server:", error);
-//     process.exit(1);
-//   }
-// }
+    app.listen(PORT, "0.0.0.0", () => {
+      console.log(`🚀 Warehouse API running on http://0.0.0.0:${PORT}`);
+      console.log(
+        `🗄️ Database: MySQL (${process.env.MYSQL_DB || "warehouse"})`
+      );
+      console.log(`🌍 Environment: ${process.env.NODE_ENV || "development"}`);
+      console.log(`🔗 CORS origins configured for Vercel deployment`);
+    });
+  } catch (error) {
+    console.error("❌ Failed to start server:", error);
+    process.exit(1);
+  }
+}
 
 startServer();
