@@ -1,60 +1,45 @@
 // backend/testEmail.js
 require('dotenv').config();
 
-console.log('📧 Email Configuration:');
-console.log('EMAIL_USER:', process.env.EMAIL_USER || 'NOT SET');
-console.log('EMAIL_SERVICE:', process.env.EMAIL_SERVICE || 'NOT SET');
-console.log('ENABLE_EMAIL_NOTIFICATIONS:', process.env.ENABLE_EMAIL_NOTIFICATIONS || 'NOT SET');
-console.log('');
-
-// Test nodemailer import
-console.log('Testing nodemailer import...');
-try {
-  const nodemailer = require('nodemailer');
-  console.log('✅ nodemailer imported successfully');
-  console.log('Type:', typeof nodemailer.createTransporter);
+async function testEmailService() {
+  console.log('🧪 Enhanced Email Service Test\n');
+  
+  const emailService = require('./services/emailService');
+  
+  // Test 1: Configuration Check
+  console.log('1. 📋 Checking Configuration...');
+  console.log('EMAIL_USER:', process.env.EMAIL_USER ? '✅ SET' : '❌ MISSING');
+  console.log('EMAIL_PASSWORD:', process.env.EMAIL_PASSWORD ? '✅ SET' : '❌ MISSING');
+  console.log('ENABLE_EMAIL_NOTIFICATIONS:', process.env.ENABLE_EMAIL_NOTIFICATIONS);
   console.log('');
-} catch (error) {
-  console.error('❌ Failed to import nodemailer:', error.message);
-  process.exit(1);
-}
-
-// Now test email service
-const emailService = require('./services/emailService');
-
-async function testEmail() {
-  console.log('🧪 Testing Email Service...\n');
-
-  // Test 1: Connection
-  console.log('1️⃣ Testing connection...');
-  const connectionTest = await emailService.testConnection();
-  console.log('Result:', connectionTest);
-  console.log('');
-
-  if (!connectionTest.success) {
-    console.log('❌ Email connection failed. Please check your configuration.');
+  
+  // Test 2: Connection Test
+  console.log('2. 🔗 Testing Connection...');
+  const connectionResult = await emailService.testConnection();
+  console.log('Connection:', connectionResult.success ? '✅ SUCCESS' : '❌ FAILED');
+  if (!connectionResult.success) {
+    console.log('Error:', connectionResult.error);
+    console.log('💡 Tips: Check your Gmail App Password and ensure 2FA is enabled');
     return;
   }
-
-  // Test 2: Send test email
-  console.log('2️⃣ Sending test user created email...');
+  console.log('');
+  
+  // Test 3: Send Test Email
+  console.log('3. ✉️ Sending Test Email...');
   const testUser = {
     username: 'testuser',
     role: 'staff',
     full_name: 'Test User',
-    email: process.env.EMAIL_USER
+    email: process.env.EMAIL_USER // Send to yourself for testing
   };
-
-  const userEmailResult = await emailService.sendUserCreatedEmail(testUser, 'TestPassword123');
-  console.log('Result:', userEmailResult);
-  console.log('');
-
-  console.log('✅ Email tests completed!');
+  
+  const emailResult = await emailService.sendUserCreatedEmail(testUser, 'TestPassword123');
+  console.log('Email Send:', emailResult.success ? '✅ SUCCESS' : '❌ FAILED');
+  if (emailResult.success) {
+    console.log('Message ID:', emailResult.messageId);
+  } else {
+    console.log('Error:', emailResult.error);
+  }
 }
 
-testEmail()
-  .then(() => process.exit(0))
-  .catch(error => {
-    console.error('❌ Test failed:', error);
-    process.exit(1);
-  });
+testEmailService().catch(console.error);

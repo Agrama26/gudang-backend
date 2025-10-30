@@ -221,7 +221,6 @@ async function initSchema() {
         keterangan TEXT,
         lokasi VARCHAR(255) NOT NULL,
         kota VARCHAR(100),
-        qr_code LONGTEXT,
         created_by INT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -1124,7 +1123,7 @@ app.get("/api/barang", authenticateToken, async (req, res) => {
     const { kotaFilter } = req.query;
 
     let query =
-      "SELECT id, nama, type, mac_address, serial_number, kondisi, status, keterangan, lokasi, kota, qr_code FROM barang";
+      "SELECT id, nama, type, mac_address, serial_number, kondisi, status, keterangan, lokasi, kota FROM barang";
     const params = [];
 
     if (kotaFilter) {
@@ -1318,63 +1317,41 @@ app.delete(
   }
 );
 
-// QR Code route
-app.get("/api/qr/:id", authenticateToken, async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    const [[barang]] = await pool.query("SELECT * FROM barang WHERE id = ?", [
-      id,
-    ]);
-    if (!barang) {
-      return res.status(404).json({ message: "Barang not found" });
-    }
-
-    const payload = JSON.stringify({
-      id: barang.id,
-      sn: barang.serial_number,
-      nama: barang.nama,
-    });
-
-    const dataUrl = await qrcode.toDataURL(payload, {
-      errorCorrectionLevel: "M",
-    });
-
-    await pool.query("UPDATE barang SET qr_code=? WHERE id=?", [dataUrl, id]);
-
-    res.json({ id: barang.id, qr: dataUrl });
-  } catch (error) {
-    console.error("❌ QR generation error:", error);
-    res.status(500).json({ message: "Failed to generate QR" });
-  }
-});
-
-// UPDATE endpoint POST /api/admin/users untuk mengirim email
+// UPDATE endpoint POST /api/admin/users untuk mengirim email - PERBAIKI RESPONSE
 app.post(
   "/api/admin/users",
   authenticateToken,
   requireAdmin,
   async (req, res) => {
     try {
-      const { username, password, role, full_name, email } = req.body;
+      const { username, password, role, full_name, email, send_welcome_email } =
+        req.body;
+
+      console.log("📧 Email settings from frontend:", {
+        send_welcome_email,
+        email,
+        username,
+      });
 
       if (!username || !password || !role) {
-        return res
-          .status(400)
-          .json({ message: "Username, password, and role are required" });
+        return res.status(400).json({
+          success: false,
+          message: "Username, password, and role are required",
+        });
       }
 
       if (!["admin", "staff"].includes(role)) {
-        return res
-          .status(400)
-          .json({ message: "Invalid role. Must be 'admin' or 'staff'" });
+        return res.status(400).json({
+          success: false,
+          message: "Invalid role. Must be 'admin' or 'staff'",
+        });
       }
 
       const hash = bcrypt.hashSync(password, 10);
 
       const [result] = await pool.query(
         `INSERT INTO users (username, password, role, full_name, email, is_active)
-       VALUES (?, ?, ?, ?, ?, TRUE)`,
+         VALUES (?, ?, ?, ?, ?, TRUE)`,
         [username, hash, role, full_name || null, email || null]
       );
 
@@ -1387,67 +1364,136 @@ app.post(
         req.ip
       );
 
-      // Send welcome email to new user
+      // KIRIM EMAIL - LOGIC YANG DIPERBAIKI
       let emailSent = false;
-      if (email && process.env.ENABLE_EMAIL_NOTIFICATIONS === "true") {
-        console.log(`📧 Attempting to send welcome email to: ${email}`);
+      let emailError = null;
 
-        const userData = {
-          username,
-          role,
-          full_name,
-          email,
-        };
+      if (
+        send_welcome_email &&
+        email &&
+        process.env.ENABLE_EMAIL_NOTIFICATIONS === "true"
+      ) {
+        console.log(`🚀 Attempting to send welcome email to: ${email}`);
 
         try {
+          const userData = {
+            username,
+            role,
+            full_name: full_name || username,
+            email,
+          };
+
+          console.log("📧 Calling email service...");
           const emailResult = await emailService.sendUserCreatedEmail(
             userData,
             password
           );
+          console.log("📧 Email service result:", emailResult);
 
-          if (emailResult.success) {
-            console.log(`✅ Welcome email sent successfully to ${email}`);
+          if (emailResult && emailResult.success) {
             emailSent = true;
+            console.log(`✅ Welcome email sent successfully to ${email}`);
 
-            // Send notification to admin
+            // Kirim notifikasi ke admin (async, tidak perlu tunggu)
             emailService
               .sendAdminNotification(userData, req.user.username)
-              .then((result) => {
-                if (result.success) {
+              .then((adminResult) => {
+                if (adminResult && adminResult.success) {
                   console.log(`✅ Admin notification sent`);
+                } else {
+                  console.log(
+                    `⚠️ Admin notification failed:`,
+                    adminResult?.message
+                  );
                 }
               })
-              .catch((err) =>
-                console.error("Admin notification error:", err.message)
-              );
+              .catch((adminError) => {
+                console.error(
+                  "❌ Admin notification error:",
+                  adminError.message
+                );
+              });
           } else {
-            console.log(
-              `⚠️ Failed to send welcome email: ${emailResult.message}`
-            );
+            emailError =
+              emailResult?.error ||
+              emailResult?.message ||
+              "Unknown email error";
+            console.log(`❌ Email service returned failure:`, emailError);
           }
         } catch (error) {
-          console.error(`❌ Email sending error:`, error.message);
+          emailError = error.message;
+          console.error(`💥 Email sending exception:`, error);
         }
       } else {
-        console.log(
-          `⚠️ Email not sent - Email: ${email || "NOT PROVIDED"}, Notifications enabled: ${process.env.ENABLE_EMAIL_NOTIFICATIONS}`
-        );
+        console.log(`⏭️ Email not sent - Config:`, {
+          send_welcome_email,
+          email_provided: !!email,
+          notifications_enabled:
+            process.env.ENABLE_EMAIL_NOTIFICATIONS === "true",
+          email_service_available: !!emailService.sendUserCreatedEmail,
+        });
       }
 
-      res.status(201).json({
+      // RESPONSE YANG LENGKAP DAN KONSISTEN
+      const response = {
+        success: true,
         message: "User created successfully",
-        id: result.insertId,
-        username,
-        role,
-        emailSent: emailSent,
-        emailAddress: email || null,
-      });
+        data: {
+          user: {
+            id: result.insertId,
+            username,
+            role,
+            full_name: full_name || null,
+            email: email || null,
+            is_active: true,
+          },
+          emailSent: emailSent,
+          emailAddress: email || null,
+          ...(emailError && { emailError: emailError }),
+        },
+      };
+
+      console.log(
+        "📨 Sending COMPLETE response to frontend:",
+        JSON.stringify(response, null, 2)
+      );
+      res.status(201).json(response);
     } catch (error) {
       console.error("❌ Create user error:", error);
       if (error.code === "ER_DUP_ENTRY") {
-        return res.status(400).json({ message: "Username already exists" });
+        return res.status(400).json({
+          success: false,
+          message: "Username already exists",
+        });
       }
-      res.status(500).json({ message: "Internal server error" });
+      res.status(500).json({
+        success: false,
+        message: "Internal server error",
+        error: error.message,
+      });
+    }
+  }
+);
+
+// ADD new endpoint untuk test email
+app.get(
+  "/api/admin/test-email",
+  authenticateToken,
+  requireAdmin,
+  async (req, res) => {
+    try {
+      console.log("🧪 Testing email connection...");
+      const result = await emailService.testConnection();
+
+      console.log("📧 Email test result:", result);
+      res.json(result);
+    } catch (error) {
+      console.error("❌ Email test error:", error);
+      res.status(500).json({
+        success: false,
+        message: "Email test failed",
+        error: error.message,
+      });
     }
   }
 );

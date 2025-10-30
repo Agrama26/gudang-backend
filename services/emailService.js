@@ -1,17 +1,17 @@
-// backend/services/emailService.js - Simple SMTP Version
-const nodemailer = require('nodemailer');
-const path = require('path');
+// backend/services/emailService.js - Perbaikan
+const nodemailer = require("nodemailer");
+const path = require("path");
 
 // Load environment variables
-require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
+require("dotenv").config({ path: path.join(__dirname, "..", ".env") });
 
-console.log('📧 Initializing Email Service...');
-console.log('Email User:', process.env.EMAIL_USER || 'NOT CONFIGURED');
+console.log("Initializing Email Service...");
+console.log("Email User:", process.env.EMAIL_USER || "NOT CONFIGURED");
 
 // Email Templates (simplified)
 const emailTemplates = {
   userCreated: (userData, tempPassword) => ({
-    subject: '🎉 Welcome to PT. Medianusa Permana',
+    subject: "Welcome to PT. Medianusa Permana",
     text: `
 Hello ${userData.full_name || userData.username}!
 
@@ -22,7 +22,7 @@ LOGIN CREDENTIALS:
 - Temporary Password: ${tempPassword}
 - Role: ${userData.role.toUpperCase()}
 
-Login here: ${process.env.APP_URL || 'http://localhost:5173'}/login
+Login here: ${process.env.APP_URL || "http://localhost:5173"}/login
 
 IMPORTANT: Please change your password after first login.
 
@@ -44,35 +44,35 @@ PT. Medianusa Permana Team
 <body>
   <div class="container">
     <div class="header">
-      <h1>🎉 Welcome to PT. Medianusa Permana</h1>
+      <h1>Welcome to PT. Medianusa Permana</h1>
     </div>
     <h2>Hello, ${userData.full_name || userData.username}!</h2>
     <p>Your account has been successfully created.</p>
     
     <div class="credentials">
-      <h3>🔐 Your Login Credentials</h3>
+      <h3>Your Login Credentials</h3>
       <p><strong>Username:</strong> ${userData.username}</p>
       <p><strong>Password:</strong> ${tempPassword}</p>
       <p><strong>Role:</strong> ${userData.role.toUpperCase()}</p>
     </div>
     
     <center>
-      <a href="${process.env.APP_URL || 'http://localhost:5173'}/login" class="button">
+      <a href="${process.env.APP_URL || "http://localhost:5173"}/login" class="button">
         Login to System
       </a>
     </center>
     
-    <p><strong>⚠️ Important:</strong> Please change your password after first login.</p>
+    <p><strong>Important:</strong> Please change your password after first login.</p>
     
     <p>Best regards,<br><strong>PT. Medianusa Permana Team</strong></p>
   </div>
 </body>
 </html>
-    `
+    `,
   }),
 
   adminNotification: (userData, createdBy) => ({
-    subject: '👤 New User Created',
+    subject: "New User Created",
     text: `
 New user has been added to the system.
 
@@ -80,7 +80,7 @@ User Details:
 - Username: ${userData.username}
 - Role: ${userData.role.toUpperCase()}
 - Created By: ${createdBy}
-- Email: ${userData.email || 'N/A'}
+- Email: ${userData.email || "N/A"}
 
 Date: ${new Date().toLocaleString()}
     `,
@@ -89,21 +89,21 @@ Date: ${new Date().toLocaleString()}
 <html>
 <body style="font-family: Arial, sans-serif;">
   <div style="max-width: 600px; margin: 20px auto; padding: 20px; border: 1px solid #ddd;">
-    <h2>👤 New User Created</h2>
+    <h2>New User Created</h2>
     <p>A new user has been added to the system.</p>
     <div style="background: #f3f4f6; padding: 15px; border-radius: 5px;">
       <strong>User Details:</strong><br>
       - Username: ${userData.username}<br>
       - Role: ${userData.role.toUpperCase()}<br>
       - Created By: ${createdBy}<br>
-      - Email: ${userData.email || 'N/A'}<br>
+      - Email: ${userData.email || "N/A"}<br>
       - Date: ${new Date().toLocaleString()}
     </div>
   </div>
 </body>
 </html>
-    `
-  })
+    `,
+  }),
 };
 
 // Email service
@@ -113,71 +113,87 @@ const emailService = {
   // Initialize transporter
   init() {
     if (!process.env.EMAIL_USER || !process.env.EMAIL_PASSWORD) {
-      console.warn('⚠️ Email credentials not configured.');
+      console.warn("Email credentials not configured.");
       return false;
     }
 
     try {
-      // Create transporter using createTransport (not createTransporter!)
+      // PERBAIKAN: Gunakan konfigurasi yang sesuai dengan .env
       this.transporter = nodemailer.createTransport({
-        host: process.env.EMAIL_HOST || 'smtp.gmail.com',
-        port: parseInt(process.env.EMAIL_PORT || '587'),
-        secure: false,
+        service: process.env.EMAIL_SERVICE || "gmail", // Gunakan service
+        host: process.env.EMAIL_HOST || "smtp.gmail.com",
+        port: parseInt(process.env.EMAIL_PORT || "587"),
+        secure: process.env.EMAIL_SECURE === "true", // Convert string to boolean
         auth: {
           user: process.env.EMAIL_USER,
-          pass: process.env.EMAIL_PASSWORD
+          pass: process.env.EMAIL_PASSWORD,
         },
         tls: {
-          rejectUnauthorized: false
-        }
+          rejectUnauthorized: false,
+        },
       });
 
-      console.log('✅ Email transporter configured');
+      console.log("Email transporter configured");
+      console.log("Using service:", process.env.EMAIL_SERVICE);
+      console.log("User:", process.env.EMAIL_USER);
       return true;
     } catch (error) {
-      console.error('❌ Error creating transporter:', error.message);
+      console.error("Error creating transporter:", error.message);
       return false;
     }
   },
 
   // Send email
   async sendEmail(to, subject, html, text) {
-    if (!this.transporter) {
-      if (!this.init()) {
-        console.log('📧 Email disabled. Would have sent to:', to);
-        return { success: false, message: 'Email transporter not configured' };
-      }
+    // PERBAIKAN: Check if email is enabled first
+    if (process.env.ENABLE_EMAIL_NOTIFICATIONS !== "true") {
+      console.log("Email disabled. Would have sent:", { to, subject });
+      return { success: false, message: "Email notifications disabled" };
     }
 
-    if (process.env.ENABLE_EMAIL_NOTIFICATIONS !== 'true') {
-      console.log('📧 Email disabled. Would have sent:', { to, subject });
-      return { success: false, message: 'Email notifications disabled' };
+    if (!this.transporter) {
+      if (!this.init()) {
+        console.log("Email not configured. Would have sent to:", to);
+        return { success: false, message: "Email transporter not configured" };
+      }
     }
 
     try {
       const mailOptions = {
-        from: process.env.EMAIL_FROM || process.env.EMAIL_USER,
+        from:
+          process.env.EMAIL_FROM ||
+          `"PT. Medianusa Permana" <${process.env.EMAIL_USER}>`,
         to,
         subject,
         text,
-        html
+        html,
       };
 
+      console.log("Attempting to send email to:", to);
       const info = await this.transporter.sendMail(mailOptions);
-      console.log('✅ Email sent:', info.messageId);
-      return { success: true, messageId: info.messageId };
+      console.log("Email sent successfully:", info.messageId);
+      return {
+        success: true,
+        messageId: info.messageId,
+        message: "Email sent successfully",
+      };
     } catch (error) {
-      console.error('❌ Email error:', error.message);
-      return { success: false, error: error.message };
+      console.error("Email sending failed:", error.message);
+      return {
+        success: false,
+        error: error.message,
+        details: "Check email configuration and credentials",
+      };
     }
   },
 
   // Send welcome email
   async sendUserCreatedEmail(userData, tempPassword) {
     if (!userData.email) {
-      return { success: false, message: 'No email provided' };
+      return { success: false, message: "No email provided for user" };
     }
 
+    console.log("👤 Sending welcome email to:", userData.email);
     const template = emailTemplates.userCreated(userData, tempPassword);
     return await this.sendEmail(
       userData.email,
@@ -191,9 +207,11 @@ const emailService = {
   async sendAdminNotification(userData, createdBy) {
     const adminEmail = process.env.ADMIN_EMAIL;
     if (!adminEmail) {
-      return { success: false, message: 'Admin email not configured' };
+      console.log("Admin email not configured");
+      return { success: false, message: "Admin email not configured" };
     }
 
+    console.log("Sending admin notification to:", adminEmail);
     const template = emailTemplates.adminNotification(userData, createdBy);
     return await this.sendEmail(
       adminEmail,
@@ -207,24 +225,34 @@ const emailService = {
   async testConnection() {
     if (!this.transporter) {
       if (!this.init()) {
-        return { success: false, message: 'Email transporter not configured' };
+        return { success: false, message: "Email transporter not configured" };
       }
     }
 
     try {
       await this.transporter.verify();
-      console.log('✅ Email connection verified');
-      return { success: true, message: 'Email connection successful' };
+      console.log("Email connection verified successfully");
+      return {
+        success: true,
+        message: "Email connection successful - Ready to send emails",
+      };
     } catch (error) {
-      console.error('❌ Connection failed:', error.message);
-      return { success: false, error: error.message };
+      console.error("Email connection failed:", error.message);
+      return {
+        success: false,
+        error: error.message,
+        details: "Please check your email credentials and configuration",
+      };
     }
-  }
+  },
 };
 
 // Initialize on load if enabled
-if (process.env.ENABLE_EMAIL_NOTIFICATIONS === 'true') {
+if (process.env.ENABLE_EMAIL_NOTIFICATIONS === "true") {
+  console.log("Email service auto-initializing...");
   emailService.init();
+} else {
+  console.log("⏸Email service disabled in settings");
 }
 
 module.exports = emailService;
