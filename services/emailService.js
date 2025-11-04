@@ -1,4 +1,3 @@
-// backend/services/emailService.js - Perbaikan
 const nodemailer = require("nodemailer");
 const path = require("path");
 
@@ -8,7 +7,7 @@ require("dotenv").config({ path: path.join(__dirname, "..", ".env") });
 console.log("Initializing Email Service...");
 console.log("Email User:", process.env.EMAIL_USER || "NOT CONFIGURED");
 
-// Email Templates (simplified)
+// Email Templates
 const emailTemplates = {
   userCreated: (userData, tempPassword) => ({
     subject: "Welcome to PT. Medianusa Permana",
@@ -118,12 +117,11 @@ const emailService = {
     }
 
     try {
-      // PERBAIKAN: Gunakan konfigurasi yang sesuai dengan .env
       this.transporter = nodemailer.createTransport({
-        service: process.env.EMAIL_SERVICE || "gmail", // Gunakan service
+        service: process.env.EMAIL_SERVICE || "gmail", 
         host: process.env.EMAIL_HOST || "smtp.gmail.com",
         port: parseInt(process.env.EMAIL_PORT || "587"),
-        secure: process.env.EMAIL_SECURE === "true", // Convert string to boolean
+        secure: process.env.EMAIL_SECURE === "true", 
         auth: {
           user: process.env.EMAIL_USER,
           pass: process.env.EMAIL_PASSWORD,
@@ -145,7 +143,7 @@ const emailService = {
 
   // Send email
   async sendEmail(to, subject, html, text) {
-    // PERBAIKAN: Check if email is enabled first
+    //  Check if email is enabled first
     if (process.env.ENABLE_EMAIL_NOTIFICATIONS !== "true") {
       console.log("Email disabled. Would have sent:", { to, subject });
       return { success: false, message: "Email notifications disabled" };

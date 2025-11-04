@@ -1,19 +1,18 @@
-// backend/testEmailDirect.js
 require('dotenv').config();
 const emailService = require('./services/emailService');
 
 async function testEmailDirectly() {
-    console.log('🧪 TESTING EMAIL SERVICE DIRECTLY...\n');
+    console.log('TESTING EMAIL SERVICE DIRECTLY...\n');
     
     // Test 1: Check environment
-    console.log('1. 📋 Checking environment...');
+    console.log('1. Checking environment...');
     console.log('EMAIL_USER:', process.env.EMAIL_USER ? '✅ SET' : '❌ MISSING');
     console.log('EMAIL_PASSWORD:', process.env.EMAIL_PASSWORD ? '✅ SET' : '❌ MISSING');
     console.log('ENABLE_EMAIL_NOTIFICATIONS:', process.env.ENABLE_EMAIL_NOTIFICATIONS);
     console.log('');
     
     // Test 2: Test connection
-    console.log('2. 🔗 Testing email connection...');
+    console.log('2. Testing email connection...');
     try {
         const connection = await emailService.testConnection();
         console.log('Connection result:', connection);
@@ -28,7 +27,7 @@ async function testEmailDirectly() {
     console.log('');
     
     // Test 3: Send actual email
-    console.log('3. ✉️ Sending test email...');
+    console.log('3. Sending test email...');
     const testUser = {
         username: 'testuser',
         role: 'staff',
@@ -49,7 +48,7 @@ async function testEmailDirectly() {
             console.log('Message:', result.message);
         }
     } catch (error) {
-        console.log('💥 Email sending exception:', error);
+        console.log('Email sending exception:', error);
     }
 }
 

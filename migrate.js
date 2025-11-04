@@ -1,8 +1,7 @@
-// backend/migrate.js - Production Database Migration
 const mysql = require('mysql2/promise');
 require('dotenv').config();
 
-console.log('🚀 Starting Database Migration for Railway...\n');
+console.log('Starting Database Migration for Railway...\n');
 
 async function runMigration() {
   const config = {
@@ -13,7 +12,7 @@ async function runMigration() {
     database: process.env.MYSQLDATABASE || process.env.MYSQL_DB || 'warehouse'
   };
 
-  console.log('📊 Database Configuration:');
+  console.log('   Database Configuration:');
   console.log(`   Host: ${config.host}`);
   console.log(`   Port: ${config.port}`);
   console.log(`   User: ${config.user}`);
@@ -24,13 +23,13 @@ async function runMigration() {
   try {
     // Connect to database
     connection = await mysql.createConnection(config);
-    console.log('✅ Connected to MySQL database\n');
+    console.log('Connected to MySQL database\n');
 
     // Run migrations in order
-    console.log('🔄 Running migrations...\n');
+    console.log('Running migrations...\n');
 
     // Migration 1: Create users table with new fields
-    console.log('1️⃣ Checking users table...');
+    console.log('1️ Checking users table...');
     const [usersTables] = await connection.query(
       "SHOW TABLES LIKE 'users'"
     );
@@ -51,9 +50,9 @@ async function runMigration() {
           last_login TIMESTAMP NULL
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
       `);
-      console.log('   ✅ Users table created');
+      console.log('   Users table created');
     } else {
-      console.log('   ⏭️  Users table exists, checking columns...');
+      console.log('   Users table exists, checking columns...');
       
       // Check and add missing columns
       const columnsToAdd = [
@@ -71,13 +70,13 @@ async function runMigration() {
         if (colExists.length === 0) {
           console.log(`   Adding column ${col.name}...`);
           await connection.query(col.sql);
-          console.log(`   ✅ Column ${col.name} added`);
+          console.log(`   Column ${col.name} added`);
         }
       }
     }
 
     // Migration 2: Create barang table
-    console.log('\n2️⃣ Checking barang table...');
+    console.log('\n2 Checking barang table...');
     const [barangTables] = await connection.query(
       "SHOW TABLES LIKE 'barang'"
     );
@@ -103,9 +102,9 @@ async function runMigration() {
           FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
       `);
-      console.log('   ✅ Barang table created');
+      console.log('   Barang table created');
     } else {
-      console.log('   ⏭️  Barang table exists, checking columns...');
+      console.log('   Barang table exists, checking columns...');
       
       // Check and add created_by column
       const [createdByCol] = await connection.query(
@@ -119,12 +118,12 @@ async function runMigration() {
           ADD COLUMN created_by INT AFTER qr_code,
           ADD FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
         `);
-        console.log('   ✅ Column created_by added');
+        console.log('   Column created_by added');
       }
     }
 
     // Migration 3: Create riwayat_barang table
-    console.log('\n3️⃣ Checking riwayat_barang table...');
+    console.log('\n3 Checking riwayat_barang table...');
     const [riwayatTables] = await connection.query(
       "SHOW TABLES LIKE 'riwayat_barang'"
     );
@@ -145,9 +144,9 @@ async function runMigration() {
           FOREIGN KEY (changed_by) REFERENCES users(id) ON DELETE SET NULL
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
       `);
-      console.log('   ✅ Riwayat_barang table created');
+      console.log('   Riwayat_barang table created');
     } else {
-      console.log('   ⏭️  Riwayat_barang table exists, checking columns...');
+      console.log('   Riwayat_barang table exists, checking columns...');
       
       // Check and add changed_by column
       const [changedByCol] = await connection.query(
@@ -161,12 +160,12 @@ async function runMigration() {
           ADD COLUMN changed_by INT AFTER kondisi,
           ADD FOREIGN KEY (changed_by) REFERENCES users(id) ON DELETE SET NULL
         `);
-        console.log('   ✅ Column changed_by added');
+        console.log('   Column changed_by added');
       }
     }
 
     // Migration 4: Create activity_logs table
-    console.log('\n4️⃣ Checking activity_logs table...');
+    console.log('\n4 Checking activity_logs table...');
     const [activityTables] = await connection.query(
       "SHOW TABLES LIKE 'activity_logs'"
     );
@@ -186,13 +185,13 @@ async function runMigration() {
           FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
       `);
-      console.log('   ✅ Activity_logs table created');
+      console.log('   Activity_logs table created');
     } else {
-      console.log('   ⏭️  Activity_logs table already exists');
+      console.log('   Activity_logs table already exists');
     }
 
     // Verify all tables
-    console.log('\n5️⃣ Verifying schema...');
+    console.log('\n5️ Verifying schema...');
     const [allTables] = await connection.query('SHOW TABLES');
     console.log('   Tables in database:');
     allTables.forEach(table => {
@@ -200,16 +199,16 @@ async function runMigration() {
       console.log(`   ✓ ${tableName}`);
     });
 
-    console.log('\n✅ All migrations completed successfully!\n');
+    console.log('\nAll migrations completed successfully!\n');
 
     // Show table structures
-    console.log('📋 Final Schema:\n');
+    console.log('Final Schema:\n');
     
     const tables = ['users', 'barang', 'riwayat_barang', 'activity_logs'];
     for (const table of tables) {
       const [tableExists] = await connection.query(`SHOW TABLES LIKE '${table}'`);
       if (tableExists.length > 0) {
-        console.log(`\n📊 ${table}:`);
+        console.log(`\n ${table}:`);
         const [columns] = await connection.query(`DESCRIBE ${table}`);
         console.table(columns.map(col => ({
           Field: col.Field,
@@ -221,13 +220,13 @@ async function runMigration() {
     }
 
   } catch (error) {
-    console.error('\n❌ Migration failed:', error.message);
+    console.error('\n Migration failed:', error.message);
     console.error('Error details:', error);
     process.exit(1);
   } finally {
     if (connection) {
       await connection.end();
-      console.log('\n🔌 Database connection closed');
+      console.log('\n Database connection closed');
     }
   }
 }
@@ -235,11 +234,11 @@ async function runMigration() {
 // Run migration
 runMigration()
   .then(() => {
-    console.log('\n🎉 Migration completed successfully!');
-    console.log('✅ Database is ready for production use.\n');
+    console.log('\n Migration completed successfully!');
+    console.log('Database is ready for production use.\n');
     process.exit(0);
   })
   .catch(error => {
-    console.error('\n❌ Migration error:', error);
+    console.error('\n Migration error:', error);
     process.exit(1);
   });

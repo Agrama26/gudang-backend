@@ -9,7 +9,7 @@ app.use(express.json());
 app.use(cors({
   origin: [
     "http://localhost:5173",
-    "https://your-frontend.vercel.app" // ganti dengan domain vercel kamu
+    "https://your-frontend.vercel.app" 
   ],
   credentials: true
 }));

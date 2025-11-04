@@ -1,18 +1,18 @@
-// server.js - Enhanced with Role-Based Access Control
 const express = require("express");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const cors = require("cors");
 const qrcode = require("qrcode");
 const mysql = require("mysql2/promise");
-const XLSX = require("xlsx"); // NEW: Excel processing
-const multer = require("multer"); // NEW: File upload
+const XLSX = require("xlsx");
+const multer = require("multer");
 require("dotenv").config();
 const emailService = require("./services/emailService");
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 const JWT_SECRET = process.env.JWT_SECRET || "isiRahasiaPanjangBanget";
+const JWT_EXPIRY = "5h";
 
 // ---------- Configure Multer for File Upload ----------
 const storage = multer.memoryStorage();
@@ -63,7 +63,7 @@ app.use(
       if (isAllowed) {
         callback(null, true);
       } else {
-        console.log("❌ CORS blocked origin:", origin);
+        console.log("CORS blocked origin:", origin);
         callback(new Error(`CORS: Origin ${origin} not allowed`));
       }
     },
@@ -102,7 +102,7 @@ async function initDatabase() {
   const PASS = process.env.MYSQLPASSWORD || process.env.MYSQL_PASSWORD || "";
   const DB = process.env.MYSQLDATABASE || process.env.MYSQL_DB || "warehouse";
 
-  console.log(`🔗 Connecting to MySQL: ${USER}@${HOST}:${PORT}/${DB}`);
+  console.log(`Connecting to MySQL: ${USER}@${HOST}:${PORT}/${DB}`);
 
   try {
     pool = mysql.createPool({
@@ -123,14 +123,14 @@ async function initDatabase() {
     await connection.ping();
     connection.release();
 
-    console.log("✅ MySQL connected successfully");
+    console.log("MySQL connected successfully");
 
     await initSchema();
-    console.log("✅ Database schema initialized");
+    console.log("Database schema initialized");
 
     return true;
   } catch (error) {
-    console.error("❌ MySQL connection failed:", error);
+    console.error("MySQL connection failed:", error);
     throw error;
   }
 }
@@ -149,16 +149,105 @@ function authenticateToken(req, res, next) {
 
   jwt.verify(token, JWT_SECRET, (err, user) => {
     if (err) {
-      console.log("❌ JWT verification failed:", err.message);
+      console.log("JWT verification failed:", err.message);
+
+      // Cek apakah token expired
+      if (err.name === "TokenExpiredError") {
+        return res.status(401).json({
+          message: "Session expired. Please login again.",
+          error: "TOKEN_EXPIRED",
+          expiredAt: err.expiredAt,
+        });
+      }
+
       return res.status(403).json({
         message: "Invalid or expired token",
         error: "INVALID_TOKEN",
       });
     }
+
     req.user = user;
     next();
   });
 }
+
+// ---------- Token Refresh Route ----------
+app.post("/api/auth/refresh", authenticateToken, async (req, res) => {
+  try {
+    const user = req.user;
+
+    const newToken = jwt.sign(
+      {
+        id: user.id,
+        username: user.username,
+        role: user.role,
+        loginTime: Date.now(),
+      },
+      JWT_SECRET,
+      { expiresIn: "5h" } // 5 hours
+    );
+
+    console.log(`Token refreshed for user: ${user.username}`);
+
+    res.json({
+      token: newToken,
+      expiresIn: "5h",
+      message: "Token refreshed successfully",
+    });
+  } catch (error) {
+    console.error("Token refresh error:", error);
+    res.status(500).json({ message: "Failed to refresh token" });
+  }
+});
+
+// Endpoint untuk cek status sesi user
+app.get("/api/auth/session", authenticateToken, async (req, res) => {
+  try {
+    const user = req.user;
+
+    // Hitung sisa waktu sesi
+    const tokenExp = user.exp * 1000; // Convert to milliseconds
+    const currentTime = Date.now();
+    const timeRemaining = tokenExp - currentTime;
+
+    res.json({
+      username: user.username,
+      role: user.role,
+      loginTime: user.loginTime,
+      expiresAt: tokenExp,
+      timeRemaining: Math.max(0, timeRemaining), // milliseconds
+      isExpired: timeRemaining <= 0,
+    });
+  } catch (error) {
+    console.error("❌ Session check error:", error);
+    res.status(500).json({ message: "Failed to check session" });
+  }
+});
+
+app.post("/api/auth/logout", authenticateToken, async (req, res) => {
+  try {
+    const user = req.user;
+
+    // Log logout activity
+    await logActivity(
+      user.id,
+      "LOGOUT",
+      "user",
+      user.id,
+      "User logged out",
+      req.ip
+    );
+
+    console.log(`User logged out: ${user.username}`);
+
+    res.json({
+      message: "Logged out successfully",
+    });
+  } catch (error) {
+    console.error("❌ Logout error:", error);
+    res.status(500).json({ message: "Logout failed" });
+  }
+});
 
 // Admin-only middleware
 function requireAdmin(req, res, next) {
@@ -338,7 +427,6 @@ async function logActivity(
 }
 
 // ---------- Excel Helper Functions ----------
-
 // Generate Excel template
 function generateExcelTemplate() {
   const templateData = [
@@ -425,7 +513,7 @@ function validateBarangData(data) {
   const validKota = ["Medan", "Batam", "Pekan Baru", "Jakarta", "Tarutung"];
 
   data.forEach((item, index) => {
-    const row = index + 2; // Excel row (accounting for header)
+    const row = index + 2; // Excel row
 
     // Required fields
     if (!item.nama || item.nama.trim() === "") {
@@ -479,7 +567,6 @@ function validateBarangData(data) {
 }
 
 // ---------- Routes ----------
-
 // Health check
 app.get("/", (req, res) => {
   res.json({
@@ -515,7 +602,7 @@ app.post("/api/auth/login", async (req, res) => {
         .json({ message: "Username and password required" });
     }
 
-    console.log(`🔐 Login attempt for user: ${username}`);
+    console.log(`Login attempt for user: ${username}`);
 
     const [rows] = await pool.query(
       "SELECT * FROM users WHERE username = ? AND is_active = TRUE",
@@ -525,35 +612,12 @@ app.post("/api/auth/login", async (req, res) => {
 
     if (!user) {
       console.log(`❌ User not found or inactive: ${username}`);
-      await logActivity(
-        null,
-        "LOGIN_FAILED",
-        "user",
-        null,
-        `Failed login attempt for ${username}`,
-        req.ip
-      );
       return res.status(401).json({ message: "Invalid credentials" });
-    }
-
-    if (!user.password || user.password.length < 55) {
-      console.log(`❌ Invalid password hash for user: ${username}`);
-      return res
-        .status(500)
-        .json({ message: "User password hash invalid in DB" });
     }
 
     const isValidPassword = bcrypt.compareSync(password, user.password);
     if (!isValidPassword) {
       console.log(`❌ Invalid password for user: ${username}`);
-      await logActivity(
-        user.id,
-        "LOGIN_FAILED",
-        "user",
-        user.id,
-        `Failed password attempt`,
-        req.ip
-      );
       return res.status(401).json({ message: "Invalid credentials" });
     }
 
@@ -562,20 +626,20 @@ app.post("/api/auth/login", async (req, res) => {
       user.id,
     ]);
 
+    // TOKEN DENGAN EXPIRY 5 JAM
     const token = jwt.sign(
-      { id: user.id, username: user.username, role: user.role },
+      {
+        id: user.id,
+        username: user.username,
+        role: user.role,
+        loginTime: Date.now(), // Tambahkan timestamp login
+      },
       JWT_SECRET,
-      { expiresIn: "24h" }
+      { expiresIn: JWT_EXPIRY } // 5 hours
     );
 
-    console.log(`✅ Login successful for user: ${username} (${user.role})`);
-    await logActivity(
-      user.id,
-      "LOGIN_SUCCESS",
-      "user",
-      user.id,
-      `Successful login`,
-      req.ip
+    console.log(
+      `Login successful: ${username} (Token expires in ${JWT_EXPIRY})`
     );
 
     res.json({
@@ -587,6 +651,7 @@ app.post("/api/auth/login", async (req, res) => {
         full_name: user.full_name,
         email: user.email,
       },
+      expiresIn: JWT_EXPIRY, // Kirim info ke frontend
     });
   } catch (error) {
     console.error("❌ Login error:", error);
@@ -594,12 +659,11 @@ app.post("/api/auth/login", async (req, res) => {
   }
 });
 
-// ---------- NEW: Import/Export Routes ----------
-
+// ---------- Import/Export Routes ----------
 // Download Excel Template
 app.get("/api/barang/template", authenticateToken, async (req, res) => {
   try {
-    console.log(`📥 Template download requested by user: ${req.user.username}`);
+    console.log(`Template download requested by user: ${req.user.username}`);
 
     const buffer = generateExcelTemplate();
 
@@ -638,7 +702,7 @@ app.post(
         return res.status(400).json({ message: "No file uploaded" });
       }
 
-      console.log(`📤 Import initiated by user: ${req.user.username}`);
+      console.log(`Import initiated by user: ${req.user.username}`);
 
       // Parse Excel file
       const workbook = XLSX.read(req.file.buffer, { type: "buffer" });
@@ -831,7 +895,6 @@ app.get("/api/barang/export", authenticateToken, async (req, res) => {
 });
 
 // ---------- Admin User Management Routes ----------
-
 // Get all users (Admin only)
 app.get(
   "/api/admin/users",
@@ -1317,7 +1380,7 @@ app.delete(
   }
 );
 
-// UPDATE endpoint POST /api/admin/users untuk mengirim email - PERBAIKI RESPONSE
+// endpoint POST /api/admin/users untuk mengirim email
 app.post(
   "/api/admin/users",
   authenticateToken,
@@ -1327,7 +1390,7 @@ app.post(
       const { username, password, role, full_name, email, send_welcome_email } =
         req.body;
 
-      console.log("📧 Email settings from frontend:", {
+      console.log("Email settings from frontend:", {
         send_welcome_email,
         email,
         username,
@@ -1364,7 +1427,7 @@ app.post(
         req.ip
       );
 
-      // KIRIM EMAIL - LOGIC YANG DIPERBAIKI
+      // KIRIM EMAIL
       let emailSent = false;
       let emailError = null;
 
@@ -1373,7 +1436,7 @@ app.post(
         email &&
         process.env.ENABLE_EMAIL_NOTIFICATIONS === "true"
       ) {
-        console.log(`🚀 Attempting to send welcome email to: ${email}`);
+        console.log(`Attempting to send welcome email to: ${email}`);
 
         try {
           const userData = {
@@ -1383,12 +1446,12 @@ app.post(
             email,
           };
 
-          console.log("📧 Calling email service...");
+          console.log("Calling email service...");
           const emailResult = await emailService.sendUserCreatedEmail(
             userData,
             password
           );
-          console.log("📧 Email service result:", emailResult);
+          console.log("Email service result:", emailResult);
 
           if (emailResult && emailResult.success) {
             emailSent = true;
@@ -1399,10 +1462,10 @@ app.post(
               .sendAdminNotification(userData, req.user.username)
               .then((adminResult) => {
                 if (adminResult && adminResult.success) {
-                  console.log(`✅ Admin notification sent`);
+                  console.log(`Admin notification sent`);
                 } else {
                   console.log(
-                    `⚠️ Admin notification failed:`,
+                    `Admin notification failed:`,
                     adminResult?.message
                   );
                 }
@@ -1422,10 +1485,10 @@ app.post(
           }
         } catch (error) {
           emailError = error.message;
-          console.error(`💥 Email sending exception:`, error);
+          console.error(`Email sending exception:`, error);
         }
       } else {
-        console.log(`⏭️ Email not sent - Config:`, {
+        console.log(`Email not sent - Config:`, {
           send_welcome_email,
           email_provided: !!email,
           notifications_enabled:
@@ -1454,7 +1517,7 @@ app.post(
       };
 
       console.log(
-        "📨 Sending COMPLETE response to frontend:",
+        "Sending COMPLETE response to frontend:",
         JSON.stringify(response, null, 2)
       );
       res.status(201).json(response);
@@ -1482,10 +1545,10 @@ app.get(
   requireAdmin,
   async (req, res) => {
     try {
-      console.log("🧪 Testing email connection...");
+      console.log("Testing email connection...");
       const result = await emailService.testConnection();
 
-      console.log("📧 Email test result:", result);
+      console.log("Email test result:", result);
       res.json(result);
     } catch (error) {
       console.error("❌ Email test error:", error);
@@ -1594,9 +1657,7 @@ app.put(
           )
           .then((result) => {
             if (result.success) {
-              console.log(
-                `✅ Status change email sent to ${currentUser.email}`
-              );
+              console.log(`Status change email sent to ${currentUser.email}`);
             }
           })
           .catch((error) =>
@@ -1673,7 +1734,7 @@ async function startServer() {
     }
 
     app.listen(PORT, "0.0.0.0", () => {
-      console.log(`🚀 Warehouse API running on http://0.0.0.0:${PORT}`);
+      console.log(`Warehouse API running on http://0.0.0.0:${PORT}`);
     });
   } catch (error) {
     console.error("❌ Failed to start server:", error);
@@ -1687,12 +1748,12 @@ async function startServer() {
     await initDatabase();
 
     app.listen(PORT, "0.0.0.0", () => {
-      console.log(`🚀 Warehouse API running on http://0.0.0.0:${PORT}`);
+      console.log(`Warehouse API running on http://0.0.0.0:${PORT}`);
       console.log(
         `🗄️ Database: MySQL (${process.env.MYSQL_DB || "warehouse"})`
       );
-      console.log(`🌍 Environment: ${process.env.NODE_ENV || "development"}`);
-      console.log(`🔗 CORS origins configured for Vercel deployment`);
+      console.log(`Environment: ${process.env.NODE_ENV || "development"}`);
+      console.log(`CORS origins configured for Vercel deployment`);
     });
   } catch (error) {
     console.error("❌ Failed to start server:", error);
