@@ -2,7 +2,6 @@ const express = require("express");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const cors = require("cors");
-const qrcode = require("qrcode");
 const mysql = require("mysql2/promise");
 const XLSX = require("xlsx");
 const multer = require("multer");
@@ -19,7 +18,7 @@ const storage = multer.memoryStorage();
 const upload = multer({
   storage: storage,
   limits: {
-    fileSize: 10 * 1024 * 1024, // 10MB limit
+    fileSize: 10 * 1024 * 1024,
   },
   fileFilter: (req, file, cb) => {
     // Accept only Excel files
@@ -112,11 +111,13 @@ async function initDatabase() {
       password: PASS,
       database: DB,
       waitForConnections: true,
-      connectionLimit: 10,
+      connectionLimit: 15,
       queueLimit: 0,
       acquireTimeout: 60000,
       timeout: 60000,
       reconnect: true,
+      enableKeepAlive: true,
+      keepAliveInitialDelay: 0,
     });
 
     const connection = await pool.getConnection();
@@ -206,7 +207,7 @@ app.get("/api/auth/session", authenticateToken, async (req, res) => {
     const user = req.user;
 
     // Hitung sisa waktu sesi
-    const tokenExp = user.exp * 1000; // Convert to milliseconds
+    const tokenExp = user.exp * 1000;
     const currentTime = Date.now();
     const timeRemaining = tokenExp - currentTime;
 
@@ -215,11 +216,11 @@ app.get("/api/auth/session", authenticateToken, async (req, res) => {
       role: user.role,
       loginTime: user.loginTime,
       expiresAt: tokenExp,
-      timeRemaining: Math.max(0, timeRemaining), // milliseconds
+      timeRemaining: Math.max(0, timeRemaining),
       isExpired: timeRemaining <= 0,
     });
   } catch (error) {
-    console.error("❌ Session check error:", error);
+    console.error("Session check error:", error);
     res.status(500).json({ message: "Failed to check session" });
   }
 });
@@ -244,7 +245,7 @@ app.post("/api/auth/logout", authenticateToken, async (req, res) => {
       message: "Logged out successfully",
     });
   } catch (error) {
-    console.error("❌ Logout error:", error);
+    console.error("Logout error:", error);
     res.status(500).json({ message: "Logout failed" });
   }
 });
@@ -302,11 +303,11 @@ async function initSchema() {
       CREATE TABLE IF NOT EXISTS barang (
         id INT AUTO_INCREMENT PRIMARY KEY,
         nama VARCHAR(255) NOT NULL,
-        type VARCHAR(100) NOT NULL,
+        type VARCHAR(100),
         mac_address VARCHAR(32),
-        serial_number VARCHAR(100) UNIQUE NOT NULL,
-        kondisi VARCHAR(50) NOT NULL,
-        status ENUM('READY','TERPAKAI','RUSAK') NOT NULL DEFAULT 'READY',
+        serial_number VARCHAR(100) UNIQUE,
+        kondisi VARCHAR(50),
+        status ENUM('READY','TERPAKAI','RUSAK'),
         keterangan TEXT,
         lokasi VARCHAR(255) NOT NULL,
         kota VARCHAR(100),
@@ -354,6 +355,33 @@ async function initSchema() {
   // Create default users
   await upsertUser("admin", "admin123", "admin");
   await upsertUser("staff", "staff123", "staff");
+
+  console.log("Creating indexes for performance...");
+
+  const indexes = [
+    "CREATE INDEX IF NOT EXISTS idx_barang_created_at ON barang(created_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_barang_kota ON barang(kota)",
+    "CREATE INDEX IF NOT EXISTS idx_barang_status ON barang(status)",
+    "CREATE INDEX IF NOT EXISTS idx_barang_serial ON barang(serial_number)",
+    "CREATE INDEX IF NOT EXISTS idx_riwayat_barang_id ON riwayat_barang(barang_id)",
+    "CREATE INDEX IF NOT EXISTS idx_riwayat_tanggal ON riwayat_barang(tanggal DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_activity_created_at ON activity_logs(created_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_activity_user_id ON activity_logs(user_id)",
+    "CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)",
+  ];
+
+  // for (const indexQuery of indexes) {
+  //   try {
+  //     await conn.execute(indexQuery);
+  //     console.log(`✅ Index created: ${indexQuery.split(' ON ')[1]}`);
+  //   } catch (error) {
+  //     if (error.code === 'ER_DUP_KEYNAME') {
+  //       console.log(`⚠️  Index already exists: ${indexQuery.split(' ON ')[1]}`);
+  //     } else {
+  //       console.log(`❌ Index error: ${error.message}`);
+  //     }
+  //   }
+  // }
 
   // Seed sample data
   const samples = [
@@ -483,7 +511,7 @@ function generateExcelTemplate() {
     },
     {
       Field: "status",
-      Required: "YES",
+      Required: "NO",
       Description: "Status: READY, TERPAKAI, RUSAK",
     },
     { Field: "keterangan", Required: "NO", Description: "Keterangan tambahan" },
@@ -503,67 +531,6 @@ function generateExcelTemplate() {
   XLSX.utils.book_append_sheet(workbook, instructionsSheet, "Instructions");
 
   return XLSX.write(workbook, { type: "buffer", bookType: "xlsx" });
-}
-
-// Validate import data
-function validateBarangData(data) {
-  const errors = [];
-  const validKondisi = ["Baru", "Baik", "Rusak Ringan", "Rusak Berat"];
-  const validStatus = ["READY", "TERPAKAI", "RUSAK"];
-  const validKota = ["Medan", "Batam", "Pekan Baru", "Jakarta", "Tarutung"];
-
-  data.forEach((item, index) => {
-    const row = index + 2; // Excel row
-
-    // Required fields
-    if (!item.nama || item.nama.trim() === "") {
-      errors.push(`Row ${row}: Nama barang wajib diisi`);
-    }
-    if (!item.type || item.type.trim() === "") {
-      errors.push(`Row ${row}: Type barang wajib diisi`);
-    }
-    if (!item.kondisi || item.kondisi.trim() === "") {
-      errors.push(`Row ${row}: Kondisi wajib diisi`);
-    }
-    if (!item.status || item.status.trim() === "") {
-      errors.push(`Row ${row}: Status wajib diisi`);
-    }
-    if (!item.lokasi || item.lokasi.trim() === "") {
-      errors.push(`Row ${row}: Lokasi wajib diisi`);
-    }
-    if (!item.kota || item.kota.trim() === "") {
-      errors.push(`Row ${row}: Kota wajib diisi`);
-    }
-
-    // Validate values
-    if (item.kondisi && !validKondisi.includes(item.kondisi)) {
-      errors.push(
-        `Row ${row}: Kondisi harus salah satu dari: ${validKondisi.join(", ")}`
-      );
-    }
-    if (item.status && !validStatus.includes(item.status)) {
-      errors.push(
-        `Row ${row}: Status harus salah satu dari: ${validStatus.join(", ")}`
-      );
-    }
-    if (item.kota && !validKota.includes(item.kota)) {
-      errors.push(
-        `Row ${row}: Kota harus salah satu dari: ${validKota.join(", ")}`
-      );
-    }
-
-    // Validate MAC address format if provided
-    if (item.mac_address && item.mac_address.trim() !== "") {
-      const macRegex = /^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$/;
-      if (!macRegex.test(item.mac_address)) {
-        errors.push(
-          `Row ${row}: Format MAC address tidak valid (gunakan format XX:XX:XX:XX:XX:XX)`
-        );
-      }
-    }
-  });
-
-  return errors;
 }
 
 // ---------- Routes ----------
@@ -611,13 +578,13 @@ app.post("/api/auth/login", async (req, res) => {
     const user = rows[0];
 
     if (!user) {
-      console.log(`❌ User not found or inactive: ${username}`);
+      console.log(`User not found or inactive: ${username}`);
       return res.status(401).json({ message: "Invalid credentials" });
     }
 
     const isValidPassword = bcrypt.compareSync(password, user.password);
     if (!isValidPassword) {
-      console.log(`❌ Invalid password for user: ${username}`);
+      console.log(`Invalid password for user: ${username}`);
       return res.status(401).json({ message: "Invalid credentials" });
     }
 
@@ -654,7 +621,7 @@ app.post("/api/auth/login", async (req, res) => {
       expiresIn: JWT_EXPIRY, // Kirim info ke frontend
     });
   } catch (error) {
-    console.error("❌ Login error:", error);
+    console.error("Login error:", error);
     res.status(500).json({ message: "Internal server error" });
   }
 });
@@ -686,10 +653,71 @@ app.get("/api/barang/template", authenticateToken, async (req, res) => {
     );
     res.send(buffer);
   } catch (error) {
-    console.error("❌ Template generation error:", error);
+    console.error("Template generation error:", error);
     res.status(500).json({ message: "Failed to generate template" });
   }
 });
+
+// Validate import data
+function validateBarangData(data) {
+  const errors = [];
+  // const validKondisi = ["Baru", "Baik", "Rusak Ringan", "Rusak Berat"];
+  const validStatus = ["READY", "TERPAKAI", "RUSAK"];
+  const validKota = ["Medan", "Batam", "Pekan Baru", "Jakarta", "Tarutung"];
+
+  data.forEach((item, index) => {
+    const row = index + 2; // Excel row
+
+    // Required fields
+    if (!item.nama || item.nama.trim() === "") {
+      errors.push(`Row ${row}: Nama barang wajib diisi`);
+    }
+    // if (!item.type || item.type.trim() === "") {
+    //   errors.push(`Row ${row}: Type barang wajib diisi`);
+    // }
+    // if (!item.kondisi || item.kondisi.trim() === "") {
+    //   errors.push(`Row ${row}: Kondisi wajib diisi`);
+    // }
+    // if (!item.status || item.status.trim() === "") {
+    //   errors.push(`Row ${row}: Status wajib diisi`);
+    // }
+    // if (!item.lokasi || item.lokasi.trim() === "") {
+    //   errors.push(`Row ${row}: Lokasi wajib diisi`);
+    // }
+    if (!item.kota || item.kota.trim() === "") {
+      errors.push(`Row ${row}: Kota wajib diisi`);
+    }
+
+    // Validate values
+    // if (item.kondisi && !validKondisi.includes(item.kondisi)) {
+    //   errors.push(
+    //     `Row ${row}: Kondisi harus salah satu dari: ${validKondisi.join(", ")}`
+    //   );
+    // }
+    if (item.status && !validStatus.includes(item.status)) {
+      errors.push(
+        `Row ${row}: Status harus salah satu dari: ${validStatus.join(", ")}`
+      );
+    }
+    if (item.kota && !validKota.includes(item.kota)) {
+      errors.push(
+        `Row ${row}: Kota harus salah satu dari: ${validKota.join(", ")}`
+      );
+    }
+
+    // Validate MAC address format if provided
+    if (item.mac_address && item.mac_address.trim() !== "") {
+      const macRegex = /^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$/;
+      if (!macRegex.test(item.mac_address)) {
+        errors.push(
+          `Row ${row}: Format MAC address tidak valid (gunakan format XX:XX:XX:XX:XX:XX)`
+        );
+      }
+    }
+  });
+
+  return errors;
+}
 
 // Import Excel
 app.post(
@@ -710,6 +738,8 @@ app.post(
       const worksheet = workbook.Sheets[sheetName];
       const jsonData = XLSX.utils.sheet_to_json(worksheet);
 
+      console.log("📊 Raw Excel data count:", jsonData.length);
+
       if (jsonData.length === 0) {
         return res.status(400).json({ message: "Excel file is empty" });
       }
@@ -718,34 +748,51 @@ app.post(
       const validationErrors = validateBarangData(jsonData);
       if (validationErrors.length > 0) {
         return res.status(400).json({
-          message: "Validation failed",
+          message: "Validasi gagal",
           errors: validationErrors,
         });
       }
 
-      // Check for duplicate serial numbers in the file
-      const serialNumbers = jsonData.map((item) => item.serial_number);
-      const duplicates = serialNumbers.filter(
-        (item, index) => serialNumbers.indexOf(item) !== index
-      );
-      if (duplicates.length > 0) {
-        return res.status(400).json({
-          message: "Duplicate serial numbers found in file",
-          duplicates: [...new Set(duplicates)],
-        });
-      }
+      // Check for existing serial numbers (only non-empty ones)
+      const nonEmptySerialNumbers = jsonData
+        .map((item) => item.serial_number)
+        .filter((serial) => serial && serial.toString().trim() !== "");
 
-      // Check for existing serial numbers in database
-      const [existingItems] = await pool.query(
-        "SELECT serial_number FROM barang WHERE serial_number IN (?)",
-        [serialNumbers]
-      );
+      console.log("🔍 Checking duplicates for:", nonEmptySerialNumbers);
 
-      if (existingItems.length > 0) {
-        return res.status(400).json({
-          message: "Some serial numbers already exist in database",
-          existing: existingItems.map((item) => item.serial_number),
-        });
+      if (nonEmptySerialNumbers.length > 0) {
+        const [existingItems] = await pool.query(
+          "SELECT serial_number FROM barang WHERE serial_number IN (?)",
+          [nonEmptySerialNumbers]
+        );
+
+        if (existingItems.length > 0) {
+          const existingSerials = existingItems.map(
+            (item) => item.serial_number
+          );
+          const duplicateRows = [];
+
+          jsonData.forEach((item, index) => {
+            if (
+              item.serial_number &&
+              item.serial_number.toString().trim() !== "" &&
+              existingSerials.includes(item.serial_number)
+            ) {
+              duplicateRows.push({
+                row: index + 2,
+                serial_number: item.serial_number,
+              });
+            }
+          });
+
+          return res.status(400).json({
+            message: "Beberapa serial number sudah ada di database",
+            errors: duplicateRows.map(
+              (dup) =>
+                `Row ${dup.row}: Serial Number "${dup.serial_number}" sudah ada di database`
+            ),
+          });
+        }
       }
 
       // Import data
@@ -756,22 +803,28 @@ app.post(
       try {
         await conn.beginTransaction();
 
-        for (const item of jsonData) {
+        for (const [index, item] of jsonData.entries()) {
           try {
+            // Convert empty values to NULL
+            const serialNumber =
+              item.serial_number && item.serial_number.toString().trim() !== ""
+                ? item.serial_number.toString().trim()
+                : null;
+
             const [result] = await conn.query(
               `INSERT INTO barang 
-            (nama, type, mac_address, serial_number, kondisi, status, keterangan, lokasi, kota, created_by)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              (nama, type, mac_address, serial_number, kondisi, status, keterangan, lokasi, kota, created_by)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
               [
-                item.nama,
-                item.type,
-                item.mac_address || null,
-                item.serial_number,
-                item.kondisi,
+                item.nama.toString().trim(),
+                item.type?.toString().trim(),
+                item.mac_address?.toString().trim() || null,
+                serialNumber,
+                item.kondisi?.toString().trim() || "Baik",
                 item.status,
-                item.keterangan || "",
-                item.lokasi,
-                item.kota,
+                item.keterangan?.toString().trim() || "",
+                item.lokasi?.toString().trim() || "Gudang",
+                item.kota.toString().trim(),
                 req.user.id,
               ]
             );
@@ -782,16 +835,19 @@ app.post(
               [
                 result.insertId,
                 item.status,
-                item.lokasi,
+                item.lokasi?.toString().trim() || "Gudang",
                 "Imported from Excel",
-                item.kondisi,
+                item.kondisi?.toString().trim() || "Baik",
                 req.user.id,
               ]
             );
 
             successCount++;
           } catch (itemError) {
+            console.error(`❌ Error importing row ${index + 2}:`, itemError);
             failedItems.push({
+              row: index + 2,
+              nama: item.nama,
               serial_number: item.serial_number,
               error: itemError.message,
             });
@@ -810,7 +866,7 @@ app.post(
         );
 
         res.json({
-          message: "Import completed",
+          message: "Import berhasil",
           success: successCount,
           failed: failedItems.length,
           failedItems: failedItems,
@@ -823,7 +879,10 @@ app.post(
       }
     } catch (error) {
       console.error("❌ Import error:", error);
-      res.status(500).json({ message: "Import failed", error: error.message });
+      res.status(500).json({
+        message: "Import gagal",
+        error: error.message,
+      });
     }
   }
 );
@@ -889,7 +948,7 @@ app.get("/api/barang/export", authenticateToken, async (req, res) => {
     res.setHeader("Content-Disposition", `attachment; filename=${filename}`);
     res.send(buffer);
   } catch (error) {
-    console.error("❌ Export error:", error);
+    console.error("Export error:", error);
     res.status(500).json({ message: "Export failed", error: error.message });
   }
 });
@@ -910,7 +969,7 @@ app.get(
 
       res.json(users);
     } catch (error) {
-      console.error("❌ Get users error:", error);
+      console.error("Get users error:", error);
       res.status(500).json({ message: "Internal server error" });
     }
   }
@@ -1100,22 +1159,18 @@ app.get(
   requireAdmin,
   async (req, res) => {
     try {
-      const { limit = 100, offset = 0 } = req.query;
+      const { limit = 50, offset = 0 } = req.query; // Default limit 50 saja
 
       const [logs] = await pool.query(
-        `
-      SELECT 
-        al.*,
-        u.username,
-        u.role
-      FROM activity_logs al
-      LEFT JOIN users u ON al.user_id = u.id
-      ORDER BY al.created_at DESC
-      LIMIT ? OFFSET ?
-    `,
+        `SELECT al.*, u.username, u.role
+       FROM activity_logs al
+       LEFT JOIN users u ON al.user_id = u.id
+       ORDER BY al.created_at DESC
+       LIMIT ? OFFSET ?`,
         [parseInt(limit), parseInt(offset)]
       );
 
+      // Hitung total hanya jika benar-benar diperlukan
       const [[{ total }]] = await pool.query(
         "SELECT COUNT(*) as total FROM activity_logs"
       );
@@ -1127,7 +1182,7 @@ app.get(
         offset: parseInt(offset),
       });
     } catch (error) {
-      console.error("❌ Get activity logs error:", error);
+      console.error("Get activity logs error:", error);
       res.status(500).json({ message: "Internal server error" });
     }
   }
@@ -1140,41 +1195,44 @@ app.get(
   requireAdmin,
   async (req, res) => {
     try {
-      // User statistics
-      const [[userStats]] = await pool.query(`
+      // Gunakan SINGLE query dengan conditional aggregation
+      const [[stats]] = await pool.query(`
       SELECT 
-        COUNT(*) as total_users,
-        SUM(CASE WHEN role = 'admin' THEN 1 ELSE 0 END) as admin_count,
-        SUM(CASE WHEN role = 'staff' THEN 1 ELSE 0 END) as staff_count,
-        SUM(CASE WHEN is_active = TRUE THEN 1 ELSE 0 END) as active_users
-      FROM users
-    `);
-
-      // Barang statistics
-      const [[barangStats]] = await pool.query(`
-      SELECT 
-        COUNT(*) as total_barang,
-        SUM(CASE WHEN status = 'READY' THEN 1 ELSE 0 END) as ready_count,
-        SUM(CASE WHEN status = 'TERPAKAI' THEN 1 ELSE 0 END) as terpakai_count,
-        SUM(CASE WHEN status = 'RUSAK' THEN 1 ELSE 0 END) as rusak_count
-      FROM barang
-    `);
-
-      // Recent activity count
-      const [[activityStats]] = await pool.query(`
-      SELECT 
-        COUNT(*) as today_activities
-      FROM activity_logs
-      WHERE DATE(created_at) = CURDATE()
+        -- User stats
+        (SELECT COUNT(*) FROM users) as total_users,
+        (SELECT COUNT(*) FROM users WHERE role = 'admin') as admin_count,
+        (SELECT COUNT(*) FROM users WHERE role = 'staff') as staff_count,
+        (SELECT COUNT(*) FROM users WHERE is_active = TRUE) as active_users,
+        
+        -- Barang stats
+        (SELECT COUNT(*) FROM barang) as total_barang,
+        (SELECT COUNT(*) FROM barang WHERE status = 'READY') as ready_count,
+        (SELECT COUNT(*) FROM barang WHERE status = 'TERPAKAI') as terpakai_count,
+        (SELECT COUNT(*) FROM barang WHERE status = 'RUSAK') as rusak_count,
+        
+        -- Activity stats
+        (SELECT COUNT(*) FROM activity_logs WHERE DATE(created_at) = CURDATE()) as today_activities
     `);
 
       res.json({
-        users: userStats,
-        barang: barangStats,
-        activity: activityStats,
+        users: {
+          total_users: stats.total_users,
+          admin_count: stats.admin_count,
+          staff_count: stats.staff_count,
+          active_users: stats.active_users,
+        },
+        barang: {
+          total_barang: stats.total_barang,
+          ready_count: stats.ready_count,
+          terpakai_count: stats.terpakai_count,
+          rusak_count: stats.rusak_count,
+        },
+        activity: {
+          today_activities: stats.today_activities,
+        },
       });
     } catch (error) {
-      console.error("❌ Get statistics error:", error);
+      console.error("Get statistics error:", error);
       res.status(500).json({ message: "Internal server error" });
     }
   }
@@ -1204,29 +1262,52 @@ app.get("/api/barang", authenticateToken, async (req, res) => {
   }
 });
 
-app.get("/api/barang/:id", authenticateToken, async (req, res) => {
+app.get("/api/barang", authenticateToken, async (req, res) => {
   try {
-    const { id } = req.params;
+    const { page = 1, limit = 50, kotaFilter, search } = req.query;
 
-    const [[barang]] = await pool.query("SELECT * FROM barang WHERE id = ?", [
-      id,
-    ]);
-    if (!barang) {
-      return res.status(404).json({ message: "Barang not found" });
+    const offset = (page - 1) * limit;
+    let whereClause = "";
+    const params = [];
+
+    if (kotaFilter) {
+      whereClause += " WHERE kota = ?";
+      params.push(kotaFilter);
     }
 
-    const [riwayat] = await pool.query(
-      `SELECT rb.*, u.username as changed_by_name 
-       FROM riwayat_barang rb
-       LEFT JOIN users u ON rb.changed_by = u.id
-       WHERE rb.barang_id = ? 
-       ORDER BY rb.tanggal DESC`,
-      [id]
+    if (search) {
+      whereClause += whereClause ? " AND" : " WHERE";
+      whereClause += " (nama LIKE ? OR type LIKE ? OR serial_number LIKE ?)";
+      params.push(`%${search}%`, `%${search}%`, `%${search}%`);
+    }
+
+    // Query data dengan pagination
+    const [rows] = await pool.query(
+      `SELECT id, nama, type, mac_address, serial_number, kondisi, status, keterangan, lokasi, kota 
+       FROM barang 
+       ${whereClause}
+       ORDER BY created_at DESC 
+       LIMIT ? OFFSET ?`,
+      [...params, parseInt(limit), offset]
     );
 
-    res.json({ barang, riwayat });
+    // Query total count
+    const [[countResult]] = await pool.query(
+      `SELECT COUNT(*) as total FROM barang ${whereClause}`,
+      params
+    );
+
+    res.json({
+      data: rows,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total: countResult.total,
+        totalPages: Math.ceil(countResult.total / limit),
+      },
+    });
   } catch (error) {
-    console.error("❌ Get barang detail error:", error);
+    console.error("❌ Get barang error:", error);
     res.status(500).json({ message: "Internal server error" });
   }
 });
@@ -1264,6 +1345,7 @@ app.post("/api/barang", authenticateToken, async (req, res) => {
     );
 
     const barangId = result.insertId;
+
     await pool.query(
       "INSERT INTO riwayat_barang (barang_id, status, lokasi, keterangan, kondisi, changed_by) VALUES (?,?,?,?,?,?)",
       [
@@ -1285,15 +1367,86 @@ app.post("/api/barang", authenticateToken, async (req, res) => {
       req.ip
     );
 
-    res
-      .status(201)
-      .json({ message: "Barang berhasil ditambahkan", id: barangId });
+    res.status(201).json({
+      success: true,
+      message: "Barang berhasil ditambahkan",
+      id: barangId,
+    });
   } catch (error) {
     console.error("❌ Create barang error:", error);
     if (error.code === "ER_DUP_ENTRY") {
-      return res.status(400).json({ message: "Serial number already exists" });
+      return res.status(400).json({
+        success: false,
+        message: "Serial number already exists",
+      });
     }
-    res.status(500).json({ message: "Internal server error" });
+    res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+});
+
+app.get("/api/barang/:id", authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    console.log(`📥 Request detail barang ID: ${id}`);
+
+    // Validasi ID
+    if (!id || isNaN(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid item ID",
+      });
+    }
+
+    const [[barang]] = await pool.query(
+      `SELECT 
+        id, nama, type, mac_address, serial_number, 
+        kondisi, status, keterangan, lokasi, kota, 
+        created_at, updated_at 
+       FROM barang 
+       WHERE id = ?`,
+      [id]
+    );
+
+    if (!barang) {
+      return res.status(404).json({
+        success: false,
+        message: "Barang not found",
+      });
+    }
+
+    const [riwayat] = await pool.query(
+      `SELECT 
+        rb.id, 
+        rb.status, 
+        rb.lokasi, 
+        rb.keterangan, 
+        rb.kondisi,
+        rb.tanggal,
+        u.username as changed_by_name
+       FROM riwayat_barang rb
+       LEFT JOIN users u ON rb.changed_by = u.id
+       WHERE rb.barang_id = ? 
+       ORDER BY rb.tanggal DESC`,
+      [id]
+    );
+
+    res.json({
+      success: true,
+      data: {
+        barang: barang,
+        riwayat: riwayat,
+      },
+    });
+  } catch (error) {
+    console.error("❌ Get barang detail error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
   }
 });
 
@@ -1339,10 +1492,16 @@ app.put("/api/barang/:id/status", authenticateToken, async (req, res) => {
       req.ip
     );
 
-    res.json({ message: "Status dan lokasi berhasil diupdate" });
+    res.json({
+      success: true,
+      message: "Status dan lokasi berhasil diupdate",
+    });
   } catch (error) {
     console.error("❌ Update status error:", error);
-    res.status(500).json({ message: "Internal server error" });
+    res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
   }
 });
 
